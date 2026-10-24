@@ -11,6 +11,7 @@ export interface Model {
   };
 }
 export class ProviderError extends Error {}
+export class BudgetViolationError extends ProviderError {}
 export async function verifyFreeAccount(key: string): Promise<void> {
   const response = await fetch('https://openrouter.ai/api/v1/key', {
     headers: { Authorization: `Bearer ${key}` },
@@ -146,6 +147,10 @@ export async function inference(
       cost?: number;
     };
   };
+  if (data.usage?.cost !== undefined && data.usage.cost !== 0)
+    throw new BudgetViolationError(
+      'Provider reported a nonzero or unexpected cost. Execution stopped; inspect provider billing before any manual retry.',
+    );
   const text = data.choices?.[0]?.message?.content;
   if (typeof text !== 'string' || !text || text.length > 150000)
     throw new ProviderError('Provider returned empty or oversized output.');

@@ -116,18 +116,20 @@ OpenRouter's live endpoints have **not been verified from this sandbox**. Integr
 
 Commands run successfully on 2026-10-24 (format checking with `npm run check` also passed). The deployment preflight was separately verified to reject the placeholder database ID with an actionable error:
 
-| Check                                                       | Result / scope                                                                                                                        |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run build`                                             | TypeScript and production Vite build passed                                                                                           |
-| `npm test`                                                  | **16 passed**: real local workerd + D1; explicit outbound provider fixtures                                                           |
-| `npm run test:browser`                                      | **3 passed**: mobile-sized Chromium auth/persistence/error/navigation; adversarial static-preview isolation; ZIP byte/path round trip |
-| `npm run db:local`                                          | Both real local D1 migrations applied                                                                                                 |
-| `wrangler deploy --dry-run --outdir .wrangler/deploy-check` | Worker/assets packaging passed; **not a deployment**                                                                                  |
-| `npm audit`                                                 | **0 vulnerabilities** reported after test-tool updates and pinned sharp/undici overrides                                              |
-| `curl /api/health` and `/`                                  | Actual local server: connected database and HTTP 200 frontend                                                                         |
-| `wrangler whoami`                                           | Not authenticated: production deployment blocked                                                                                      |
-| Live provider test                                          | Blocked: no key and outbound network policy                                                                                           |
-| Real iPhone Safari / public production URL                  | Not tested / not deployed                                                                                                             |
+| Check                                                       | Result / scope                                                                                                                                                  |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run build`                                             | TypeScript and production Vite build passed                                                                                                                     |
+| `npm test`                                                  | **20 passed**: real local workerd + D1; explicit outbound provider fixtures                                                                                     |
+| `npm run test:browser`                                      | **4 passed**: mobile-sized Chromium auth/persistence/settings/history; adversarial static-preview isolation; actual fixture ZIP download and archive round trip |
+| `npm run db:local`                                          | Both real local D1 migrations applied                                                                                                                           |
+| `wrangler deploy --dry-run --outdir .wrangler/deploy-check` | Worker/assets packaging passed; **not a deployment**                                                                                                            |
+| `npm audit`                                                 | **0 vulnerabilities** reported after test-tool updates and pinned sharp/undici overrides                                                                        |
+| `curl /api/health` and `/`                                  | Actual local server: connected database and HTTP 200 frontend                                                                                                   |
+| `wrangler whoami`                                           | Not authenticated: production deployment blocked                                                                                                                |
+| Live provider test                                          | Blocked: no key and outbound network policy                                                                                                                     |
+| Real iPhone Safari / public production URL                  | Not tested / not deployed                                                                                                                                       |
+
+Phase 2 adds production-configuration/template checks and immediate stop on a provider-reported nonzero cost. See `PHASE2_REPORT.md` and `DEPLOYMENT.md` for current preservation and deployment results.
 
 API tests cover secure cookie and hashed session, CSRF, authorization, logout, rate limiting, body/type validation, free-model filtering, rejection of paid accounts and models, bounded fallback, quota errors, task persistence, source revisions, validation failure, interrupted-run recovery and audit events.
 

@@ -1,4 +1,5 @@
 import {
+  BudgetViolationError,
   freeModels,
   verifyFreeAccount,
   inference,
@@ -178,6 +179,7 @@ async function execute(env: Env, task: Task) {
         );
         break;
       } catch (error) {
+        if (error instanceof BudgetViolationError) throw error;
         lastError = error;
         await log(
           error instanceof Error ? error.message : 'Provider request failed',

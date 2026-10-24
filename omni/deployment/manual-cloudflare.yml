@@ -1,0 +1,87 @@
+# TEMPLATE ONLY. Not active while stored under omni/deployment/.
+# See DEPLOYMENT.md before installing it as a GitHub Actions workflow.
+name: OMNI manual free-plan deployment
+on:
+  workflow_dispatch:
+    inputs:
+      authorize_deploy:
+        description: 'I authorize production deployment and migrations'
+        required: true
+        type: boolean
+        default: false
+      confirm_free_plan:
+        description: 'I verified Workers and D1 Free; no billing/card/upgrade'
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: omni-production-deployment
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.event.repository.private == false && inputs.authorize_deploy && inputs.confirm_free_plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: omni
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: arena/9a131784-autogpt
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run check && npm run build && npm test && npm audit
+      - name: Configure existing Free D1 binding
+        env:
+          D1_ID: ${{ vars.OMNI_D1_DATABASE_ID }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { parse } from 'jsonc-parser';
+          const id = process.env.D1_ID || '';
+          if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(id) || /^0+-0+-0+-0+-0+$/.test(id)) throw new Error('Set OMNI_D1_DATABASE_ID to the actual existing Free D1 UUID.');
+          const config = parse(readFileSync('wrangler.jsonc', 'utf8'));
+          config.d1_databases.find(db => db.binding === 'DB').database_id = id;
+          writeFileSync('wrangler.jsonc', JSON.stringify(config, null, 2));
+          JS
+          node scripts/check-deploy.mjs
+      - name: Apply production migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.OMNI_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.OMNI_CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+          npm run db:remote
+      - name: Deploy with platform-managed secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.OMNI_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.OMNI_CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_PASSWORD: ${{ secrets.OMNI_ADMIN_PASSWORD }}
+          OPENROUTER_API_KEY: ${{ secrets.OMNI_OPENROUTER_API_KEY }}
+        run: |
+          node --input-type=module <<'JS'
+          import { mkdirSync, writeFileSync } from 'node:fs';
+          const password = process.env.ADMIN_PASSWORD || '';
+          if (password.length < 20) throw new Error('Set a unique OMNI_ADMIN_PASSWORD secret of at least 20 characters.');
+          const secrets = { ADMIN_PASSWORD: password };
+          if (process.env.OPENROUTER_API_KEY) secrets.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+          mkdirSync('.wrangler', { recursive: true });
+          writeFileSync('.wrangler/production-secrets.json', JSON.stringify(secrets), { mode: 0o600 });
+          JS
+          npx wrangler deploy --secrets-file .wrangler/production-secrets.json
+      - name: Verify the actual public HTTPS URL supplied by the owner
+        env:
+          OMNI_URL: ${{ vars.OMNI_PUBLIC_URL }}
+          OMNI_ADMIN_PASSWORD: ${{ secrets.OMNI_ADMIN_PASSWORD }}
+        run: |
+          # No inference is invoked when a provider key is configured unless separately authorized.
+          npm run verify:deployment
+      - name: Remove temporary credential file
+        if: always()
+        run: rm -f .wrangler/production-secrets.json

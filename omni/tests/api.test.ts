@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { validateFiles } from '../worker/ai';
 let mf: Miniflare;
 let cookie = '';
-let mode: 'success' | 'rate' | 'invalid' = 'success';
+let mode: 'success' | 'rate' | 'invalid' | 'cost' = 'success';
 let inferenceCalls = 0;
 let freeAccount = true;
 const password = 'integration-test-password-123';
@@ -100,7 +100,11 @@ beforeAll(async () => {
             finish_reason: 'stop',
           },
         ],
-        usage: { prompt_tokens: 20, completion_tokens: 30, cost: 0 },
+        usage: {
+          prompt_tokens: 20,
+          completion_tokens: 30,
+          cost: mode === 'cost' ? 0.01 : 0,
+        },
       });
     },
   });
@@ -297,6 +301,19 @@ describe('Workers API with real local D1 and mocked provider only', () => {
         })
       ).status,
     ).toBe(400);
+  });
+  it('halts on a reported nonzero charge without another inference attempt', async () => {
+    mode = 'cost';
+    const count = inferenceCalls;
+    const task = await create();
+    const result = (await (
+      await request(`/tasks/${task.id}/run`, {})
+    ).json()) as { status: string; error: string; result: string | null };
+    expect(result.status).toBe('blocked');
+    expect(result.error).toContain('nonzero or unexpected cost');
+    expect(result.result).toBeNull();
+    expect(inferenceCalls - count).toBe(1);
+    mode = 'success';
   });
   it('enforces login throttling', async () => {
     for (let i = 0; i < 4; i++)

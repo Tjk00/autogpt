@@ -43,6 +43,21 @@ test('mobile login, real blocked execution, persistence, navigation and logout',
     page.getByRole('button').filter({ hasText: objective }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Open navigation' }).click();
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Execution history' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button').filter({ hasText: objective }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Provider & security configuration' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Load audit log' }).click();
+  await expect(page.locator('pre')).toContainText('task.blocked');
+  await page.getByRole('button', { name: 'Open navigation' }).click();
   await page.getByRole('button', { name: 'AI Models', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'Provider & security configuration' }),
@@ -112,4 +127,62 @@ test('project ZIP preserves nested source paths and bytes', () => {
   const roundTrip = unzipSync(zipSync(files));
   expect(Object.keys(roundTrip)).toEqual(Object.keys(files));
   expect(strFromU8(roundTrip['README.md'])).toBe('Source only — not executed');
+});
+
+test('mobile website result preview and actual ZIP download — explicit API fixtures, not live AI', async ({
+  page,
+}) => {
+  const files = [
+    { path: 'index.html', content: '<h1>Website fixture</h1>' },
+    { path: 'style.css', content: 'h1{color:rgb(0,128,0)}' },
+  ];
+  await page.route('**/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const payload =
+      path === '/api/me'
+        ? { owner: true }
+        : path === '/api/providers'
+          ? { openrouter: false }
+          : path === '/api/tasks'
+            ? [
+                {
+                  id: 'fixture-website',
+                  kind: 'website',
+                  objective: '[UI fixture] Website export',
+                  model: '',
+                  status: 'completed',
+                  result: JSON.stringify({
+                    summary: 'Explicit UI fixture, not live generation',
+                    files,
+                  }),
+                  steps: '[]',
+                  usage: null,
+                  created: 1,
+                  updated: 1,
+                },
+              ]
+            : {};
+    await route.fulfill({ json: payload });
+  });
+  await page.goto('/');
+  await page
+    .getByRole('button')
+    .filter({ hasText: '[UI fixture] Website export' })
+    .click();
+  const preview = page.frameLocator(
+    'iframe[title="Generated website — isolated static preview"]',
+  );
+  await expect(
+    preview.getByRole('heading', { name: 'Website fixture' }),
+  ).toHaveCSS('color', 'rgb(0, 128, 0)');
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download project ZIP' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('omni-fixture-website.zip');
+  const stream = await download.createReadStream();
+  const parts: Buffer[] = [];
+  for await (const part of stream!) parts.push(Buffer.from(part));
+  const source = unzipSync(Buffer.concat(parts));
+  expect(strFromU8(source['index.html'])).toBe(files[0].content);
+  expect(strFromU8(source['style.css'])).toBe(files[1].content);
 });
